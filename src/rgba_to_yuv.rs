@@ -1,6 +1,7 @@
-pub trait PixelCompute: Copy + PartialEq {
+use num_traits::AsPrimitive;
+
+pub trait PixelCompute: Copy + PartialEq + AsPrimitive<f32> + std::fmt::Debug {
     const ZERO: Self;
-    const VALUE_MAX: Self;
     const SCALE: f32;
     fn to_f32(self) -> f32;
     fn from_f32(val: f32) -> Self;
@@ -8,7 +9,6 @@ pub trait PixelCompute: Copy + PartialEq {
 
 impl PixelCompute for u8 {
     const ZERO: Self = 0;
-    const VALUE_MAX: Self = 255;
     const SCALE: f32 = 255.0;
     fn to_f32(self) -> f32 { (self as f32) / Self::SCALE }
     fn from_f32(val: f32) -> Self { (val * Self::SCALE) as u8 }
@@ -16,7 +16,6 @@ impl PixelCompute for u8 {
 
 impl PixelCompute for u16 {
     const ZERO: Self = 0;
-    const VALUE_MAX: Self = 65535;
     const SCALE: f32 = 65535.0;
     fn to_f32(self) -> f32 { (self as f32) / Self::SCALE }
     fn from_f32(val: f32) -> Self { (val * Self::SCALE) as u16 }
@@ -24,7 +23,6 @@ impl PixelCompute for u16 {
 
 impl PixelCompute for f32 {
     const ZERO: Self = 0.0;
-    const VALUE_MAX: Self = 1.0;
     const SCALE: f32 = 1.0;
     fn to_f32(self) -> f32 { self }
     fn from_f32(val: f32) -> Self { val }
@@ -61,7 +59,6 @@ impl<T> RgbaPixel<T> where T: PixelCompute {
         let g = self.get_green();
         let b = self.get_blue();
         let a = self.get_alpha();
-        log::trace!("r: {}, g: {}, b: {}, a: {}", r.to_f32(), g.to_f32(), b.to_f32(), a.to_f32());
         if a == T::ZERO {
             return RgbaPixel::zero();
         }
@@ -70,15 +67,15 @@ impl<T> RgbaPixel<T> where T: PixelCompute {
         let mut g_f = g.to_f32();
         let mut b_f = b.to_f32();
 
-        if a_f < T::VALUE_MAX.to_f32() {
-            r_f = r_f * a_f / T::SCALE;
-            g_f = g_f * a_f / T::SCALE;
-            b_f = b_f * a_f / T::SCALE;
+        if a_f < T::SCALE {
+            r_f *= a_f;
+            g_f *= a_f;
+            b_f *= a_f;
         }
 
-        let max_val = r_f.max(g_f).max(b_f);
+        let max_val = max3(r_f, g_f, b_f);
         if max_val > 0.0 {
-            let scale = T::SCALE / max_val;
+            let scale = 1.0 / max_val;
             r_f *= scale;
             g_f *= scale;
             b_f *= scale;
@@ -156,6 +153,10 @@ where
     }
 }
 
+fn max3<T: PartialOrd>(a: T, b: T, c: T) -> T {
+    if a >= b && a >= c { a } else if b >= c { b } else { c }
+}
+
 mod tests {
     use super::*;
 
@@ -180,7 +181,6 @@ mod tests {
     #[test]
     fn test_pixel_compute() {
         assert_eq!(u8::ZERO, 0);
-        assert_eq!(u8::VALUE_MAX, 255);
         assert_eq!(u8::SCALE, 255.0);
         assert_eq!(u8::from_f32(0.5), 127);
         assert_eq!(u8::from_f32(0.0), 0);
@@ -193,7 +193,6 @@ mod tests {
         assert_eq!(u8::from_f32(0.999), 254);
 
         assert_eq!(u16::ZERO, 0);
-        assert_eq!(u16::VALUE_MAX, 65535);
         assert_eq!(u16::SCALE, 65535.0);
         assert_eq!(u16::from_f32(0.5), 32767);
         assert_eq!(u16::from_f32(0.0), 0);
@@ -206,7 +205,6 @@ mod tests {
         assert_eq!(u16::from_f32(0.999), 65469);
 
         assert_eq!(f32::ZERO, 0.0);
-        assert_eq!(f32::VALUE_MAX, 1.0);
         assert_eq!(f32::SCALE, 1.0);
         assert_eq!(f32::from_f32(0.5), 0.5);
         assert_eq!(f32::from_f32(0.0), 0.0);
@@ -272,8 +270,7 @@ mod tests {
 
     #[test]
     fn test_rgba_to_yuva() {
-        // RGBA -> YUVA -> RGBA の round-trip テスト
-        let rgba = RgbaPixel::<f32>::new(0.0, 0.0, 1.0, 1.0); // 青色の例
+        let rgba = RgbaPixel::<f32>::new(0.0, 0.0, 1.0, 1.0);
         let yuva = YuvaPixel::<f32>::from(rgba.clone());
         let converted_rgba = RgbaPixel::<f32>::from(yuva);
         assert!((rgba.red - converted_rgba.red).abs() < 1e-3);
@@ -284,8 +281,6 @@ mod tests {
 
     #[test]
     fn test_yuva_to_rgba() {
-        // YUVA -> RGBA -> YUVA の round-trip テスト
-        // 一度 RGBA から生成した YUVA を利用して整合性を確認する
         let rgba = RgbaPixel::<f32>::new(0.392_156_87, 0.588_235_3, 0.784_313_74, 1.0);
         let yuva = YuvaPixel::<f32>::from(rgba);
         let converted_rgba = RgbaPixel::<f32>::from(yuva.clone());
@@ -294,5 +289,68 @@ mod tests {
         assert!((yuva.u - converted_yuva.u).abs() < 1e-3);
         assert!((yuva.v - converted_yuva.v).abs() < 1e-3);
         assert!((yuva.alpha - converted_yuva.alpha).abs() < 1e-3);
+    }
+
+    fn unmult_rgba8(r: u8, g: u8, b: u8, a: u8) -> Option<(u8, u8, u8, u8)> {
+        if a == 0 {
+            Some((0, 0, 0, 0))
+        } else {
+            let a = a as f32;
+            let mut r = r as f32;
+            let mut g = g as f32;
+            let mut b = b as f32;
+            if a < 255.0 {
+                r = (r * a) / 255.0;
+                g = (g * a) / 255.0;
+                b = (b * a) / 255.0;
+            }
+    
+            let max_val = max3(r, g, b) as f32;
+            if max_val > 0.0 {
+                let scale = 255.0 / max_val;
+                r *= scale;
+                g *= scale;
+                b *= scale;
+            } else {
+                return Some((0, 0, 0, 0));
+            }
+            Some((r as u8, g as u8, b as u8, max_val as u8))
+        }
+    }
+    
+    #[test]
+    fn test_unmult_rgba8() {
+        let (r, g, b, a) = unmult_rgba8(0, 0, 0, 255).unwrap();
+        assert_eq!((r, g, b, a), (0, 0, 0, 0));
+
+        let (r, g, b, a) = unmult_rgba8(255, 255, 255, 255).unwrap();
+        assert_eq!((r, g, b, a), (255, 255, 255, 255));
+
+        let (r, g, b, a) = unmult_rgba8(255, 255, 255, 128).unwrap();
+        assert_eq!((r, g, b, a), (255, 255, 255, 128));
+
+        let (r, g, b, a) = unmult_rgba8(255, 255, 255, 0).unwrap();
+        assert_eq!((r, g, b, a), (0, 0, 0, 0));
+
+        let (r, g, b, a) = unmult_rgba8(255, 127, 127, 255).unwrap();
+        assert_eq!((r, g, b, a), (255, 127, 127, 255));
+    }
+
+    #[test]
+    fn test_pixel_unmult_u8() {
+        let p = RgbaPixel::<u8>::new(0, 0, 0, 255).unmult_rgba();
+        assert_eq!(p, RgbaPixel::<u8>::zero());
+
+        let p = RgbaPixel::<u8>::new(255, 255, 255, 255).unmult_rgba();
+        assert_eq!(p, RgbaPixel::<u8>::new(255, 255, 255, 255));
+
+        let p = RgbaPixel::<u8>::new(255, 255, 255, 128).unmult_rgba();
+        assert_eq!(p, RgbaPixel::<u8>::new(255, 255, 255, 128));
+
+        let p = RgbaPixel::<u8>::new(255, 255, 255, 0).unmult_rgba();
+        assert_eq!(p, RgbaPixel::<u8>::zero());
+
+        let p = RgbaPixel::<u8>::new(255, 127, 127, 255).unmult_rgba();
+        assert_eq!(p, RgbaPixel::<u8>::new(255, 127, 127, 255));
     }
 }
