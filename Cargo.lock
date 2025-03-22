@@ -50,12 +50,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
-name = "base64"
-version = "0.22.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
-
-[[package]]
 name = "bincode"
 version = "1.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -367,30 +361,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "premiere"
-version = "0.2.1"
-source = "git+https://github.com/virtualritz/after-effects?rev=c70729a#c70729aa569e5a67c9556e452923072be059f4b8"
-dependencies = [
- "base64",
- "bincode",
- "bitflags",
- "fastrand",
- "log",
- "parking_lot",
- "premiere-sys",
- "serde",
-]
-
-[[package]]
-name = "premiere-sys"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6f6e1b2b6aeb8fa5cbc379481885cc360ae8fdb25a61e350413a04beb3e7e06"
-dependencies = [
- "bindgen",
-]
-
-[[package]]
 name = "pretty-hex"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -584,7 +554,6 @@ dependencies = [
  "log",
  "num-traits",
  "pipl",
- "premiere",
  "rayon",
  "win_dbg_logger",
  "yuvutils-rs",

@@ -8,7 +8,7 @@ crate-type = ["cdylib"]
 
 [target.'cfg(any(windows, target_os="macos"))'.dependencies]
 after-effects = {git = "https://github.com/virtualritz/after-effects", rev = "c70729a", features = ["catch-panics"]}
-premiere = {git = "https://github.com/virtualritz/after-effects", rev = "c70729a"}
+# premiere = {git = "https://github.com/virtualritz/after-effects", rev = "c70729a"}
 
 [target.'cfg(any(windows, target_os="macos"))'.build-dependencies]
 pipl = {git = "https://github.com/virtualritz/after-effects", rev = "c70729a"}
