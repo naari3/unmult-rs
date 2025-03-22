@@ -1,9 +1,10 @@
 use after_effects as ae;
-use num_traits::{Num, NumCast, ToPrimitive, Zero};
+use rgba_to_yuv::{RgbaPixel, YuvaPixel};
+
+mod rgba_to_yuv;
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 enum Params {
-    Noise,
 }
 
 #[derive(Default)]
@@ -16,78 +17,16 @@ ae::define_effect!(Plugin, (), Params);
 #[repr(C)] struct PixelBGRA32f { blue: f32, green: f32, red: f32, alpha: f32 }
 #[repr(C)] struct PixelVUYA32f { pr: f32, pb: f32, luma: f32, alpha: f32 }
 
-fn unmult_rgba8(r: u8, g: u8, b: u8, a: u8) -> Option<(u8, u8, u8, u8)> {
-    if a == 0 {
-        Some((0, 0, 0, 0))
-    } else {
-        let a = a as f32;
-        let mut r = r as f32;
-        let mut g = g as f32;
-        let mut b = b as f32;
-        if a < 255.0 {
-            r = r * a / 256.0;
-            g = g * a / 256.0;
-            b = b * a / 256.0;
-        }
-
-        let max_val = max3(r, g, b) as f32;
-        if max_val > 0.0 {
-            let scale = 256.0 / max_val;
-            r *= scale;
-            g *= scale;
-            b *= scale;
-        } else {
-            return Some((0, 0, 0, 0));
-        }
-        Some((r as u8, g as u8, b as u8, max_val as u8))
-    }
-}
-
-fn unmult_rgba16(r: u16, g: u16, b: u16, a: u16) -> Option<(u16, u16, u16, u16)> {
-    if a == 0 {
-        Some((0, 0, 0, 0))
-    } else {
-        let a = a as f32 / 65535.0;
-        let r = r as f32 / a;
-        let g = g as f32 / a;
-        let b = b as f32 / a;
-        Some((r as u16, g as u16, b as u16, a as u16))
-    }
-}
-
-fn unmult_rgbaf32(r: f32, g: f32, b: f32, a: f32) -> Option<(f32, f32, f32, f32)> {
-    if a == 0.0 {
-        Some((0.0, 0.0, 0.0, 0.0))
-    } else {
-        let r = r / a;
-        let g = g / a;
-        let b = b / a;
-        Some((r, g, b, a))
-    }
-}
-
-fn max3<T: PartialOrd>(a: T, b: T, c: T) -> T {
-    if a >= b && a >= c { a } else if b >= c { b } else { c }
-}
-
 impl AdobePluginGlobal for Plugin {
     fn can_load(_host_name: &str, _host_version: &str) -> bool {
         true
     }
 
-    fn params_setup(&self, params: &mut ae::Parameters<Params>, _in_data: InData, _: OutData) -> Result<(), Error> {
-        params.add(Params::Noise, "Noise variation", ae::FloatSliderDef::setup(|f| {
-            f.set_slider_min(0.0);
-            f.set_slider_max(100.0);
-            f.set_valid_min(0.0);
-            f.set_valid_max(1000.0);
-            f.set_default(10.0);
-            f.set_precision(1);
-            f.set_display_flags(ae::ValueDisplayFlag::PERCENT);
-        }))
+    fn params_setup(&self, _params: &mut ae::Parameters<Params>, _in_data: InData, _: OutData) -> Result<(), Error> {
+        Ok(())
     }
 
-    fn handle_command(&mut self, cmd: ae::Command, in_data: InData, mut out_data: OutData, params: &mut ae::Parameters<Params>) -> Result<(), ae::Error> {
+    fn handle_command(&mut self, cmd: ae::Command, in_data: InData, mut out_data: OutData, _params: &mut ae::Parameters<Params>) -> Result<(), ae::Error> {
         match cmd {
             ae::Command::About => {
                 out_data.set_return_msg("SDK_Noise v5.6\rCopyright 2007-2023 Adobe Inc.\rSimple noise effect.");
@@ -113,8 +52,6 @@ impl AdobePluginGlobal for Plugin {
                 }
             }
             ae::Command::Render { in_layer, mut out_layer } => {
-                let value = params.get(Params::Noise)?.as_float_slider()?.value() as f32 / 100.0;
-
                 let progress_final = out_layer.height() as _;
 
                 if in_data.is_premiere() {
@@ -140,62 +77,66 @@ impl AdobePluginGlobal for Plugin {
                         row_bytes.chunks_mut(bytes_per_pixel).enumerate().for_each(|(x, pix_chunk)| { // iterator over row pixels
                             match out_pixel_format {
                                 pr::PixelFormat::Bgra4444_8u => {
-                                    let pixel = unsafe { &mut *(in_data.as_ptr().add(y as usize * in_stride) as *mut PixelBGRA8u).add(x) };
+                                    let pixel = unsafe { &mut *(in_data.as_ptr().add(y * in_stride) as *mut PixelBGRA8u).add(x) };
                                     let out_pixel = unsafe { &mut *(pix_chunk as *mut _ as *mut PixelBGRA8u) };
 
-                                    let temp = (fastrand::u8(..) as f32 * value) as u8;
-                                    out_pixel.alpha = pixel.alpha as _;
-                                    out_pixel.red   = (pixel.red  .saturating_add(temp)).min(ae::MAX_CHANNEL8 as u8);
-                                    out_pixel.green = (pixel.green.saturating_add(temp)).min(ae::MAX_CHANNEL8 as u8);
-                                    out_pixel.blue  = (pixel.blue .saturating_add(temp)).min(ae::MAX_CHANNEL8 as u8);
+                                    let new_pixel = RgbaPixel::new(pixel.red, pixel.green, pixel.blue, pixel.alpha).unmult_rgba();
+
+                                    out_pixel.alpha = new_pixel.get_alpha();
+                                    out_pixel.red   = new_pixel.get_red();
+                                    out_pixel.green = new_pixel.get_green();
+                                    out_pixel.blue  = new_pixel.get_blue();
                                 },
                                 pr::PixelFormat::Vuya4444_8u => {
-                                    let pixel = unsafe { &mut *(in_data.as_ptr().add(y as usize * in_stride) as *mut PixelVUYA8u).add(x) };
+                                    let pixel = unsafe { &mut *(in_data.as_ptr().add(y * in_stride) as *mut PixelVUYA8u).add(x) };
                                     let out_pixel = unsafe { &mut *(pix_chunk as *mut _ as *mut PixelVUYA8u) };
 
-                                    let temp = (fastrand::u8(..) as f32 * value) as u8;
-                                    out_pixel.alpha = pixel.alpha as _;
-                                    out_pixel.pb = pixel.pb as _;
-                                    out_pixel.pr = pixel.pr as _;
-                                    out_pixel.luma = (pixel.luma.saturating_add(temp)).min(ae::MAX_CHANNEL8 as u8);
+                                    let rgba_pixel = RgbaPixel::from(YuvaPixel::new(pixel.luma, pixel.pb, pixel.pr, pixel.alpha));
+                                    let new_pixel = rgba_pixel.unmult_rgba();
+                                    let new_yuva = YuvaPixel::from(new_pixel);
+
+                                    out_pixel.alpha = new_yuva.get_alpha();
+                                    out_pixel.luma = new_yuva.get_y();
+                                    out_pixel.pb = new_yuva.get_u();
+                                    out_pixel.pr = new_yuva.get_v();
                                 },
                                 pr::PixelFormat::Bgra4444_32f => {
-                                    let pixel = unsafe { &mut *(in_data.as_ptr().add(y as usize * in_stride) as *mut PixelBGRA32f).add(x) };
+                                    let pixel = unsafe { &mut *(in_data.as_ptr().add(y * in_stride) as *mut PixelBGRA32f).add(x) };
                                     let out_pixel = unsafe { &mut *(pix_chunk as *mut _ as *mut PixelBGRA32f) };
 
-                                    let temp = fastrand::f32() * value;
-                                    out_pixel.alpha = pixel.alpha as _;
-                                    out_pixel.red   = (pixel.red   + temp).min(1.0);
-                                    out_pixel.green = (pixel.green + temp).min(1.0);
-                                    out_pixel.blue  = (pixel.blue  + temp).min(1.0);
+                                    let new_pixel = RgbaPixel::new(pixel.red, pixel.green, pixel.blue, pixel.alpha).unmult_rgba();
+
+                                    out_pixel.alpha = new_pixel.get_alpha();
+                                    out_pixel.red   = new_pixel.get_red();
+                                    out_pixel.green = new_pixel.get_green();
+                                    out_pixel.blue  = new_pixel.get_blue();
                                 },
                                 pr::PixelFormat::Vuya4444_32f => {
-                                    let pixel = unsafe { &mut *(in_data.as_ptr().add(y as usize * in_stride) as *mut PixelVUYA32f).add(x) };
+                                    let pixel = unsafe { &mut *(in_data.as_ptr().add(y * in_stride) as *mut PixelVUYA32f).add(x) };
                                     let out_pixel = unsafe { &mut *(pix_chunk as *mut _ as *mut PixelVUYA32f) };
 
-                                    let temp = fastrand::f32() * value;
-                                    out_pixel.alpha = pixel.alpha as _;
-                                    out_pixel.pb = pixel.pb as _;
-                                    out_pixel.pr = pixel.pr as _;
-                                    out_pixel.luma = (pixel.luma + temp).min(1.0);
+                                    let rgba_pixel = RgbaPixel::from(YuvaPixel::new(pixel.luma, pixel.pb, pixel.pr, pixel.alpha));
+                                    let new_pixel = rgba_pixel.unmult_rgba();
+                                    let new_yuva = YuvaPixel::from(new_pixel);
+                                    
+                                    out_pixel.alpha = new_yuva.get_alpha();
+                                    out_pixel.luma = new_yuva.get_y();
+                                    out_pixel.pb = new_yuva.get_u();
+                                    out_pixel.pr = new_yuva.get_v();
                                 },
                                 _ => { }
                             }
                         });
                     });
-                } else if value == 0.0 {
-                    out_layer.copy_from(&in_layer, None, None)?;
                 } else {
                     in_layer.iterate_with(&mut out_layer, 0, progress_final, None, |_x: i32, _y: i32, pixel: ae::GenericPixel, out_pixel: ae::GenericPixelMut| -> Result<(), Error> {
                         match (pixel, out_pixel) {
                             (ae::GenericPixel::Pixel8(pixel), ae::GenericPixelMut::Pixel8(out_pixel)) => {
-                                log::info!("Render Pixel8");
-                                let new_pixel = unmult_rgba8(pixel.red, pixel.green, pixel.blue, pixel.alpha);
-                                let new_pixel = new_pixel.unwrap_or((0, 0, 0, 0));
-                                out_pixel.alpha = new_pixel.3;
-                                out_pixel.red   = new_pixel.0;
-                                out_pixel.green = new_pixel.1;
-                                out_pixel.blue  = new_pixel.2;
+                                let new_pixel = RgbaPixel::new(pixel.red, pixel.green, pixel.blue, pixel.alpha).unmult_rgba();
+                                out_pixel.alpha = new_pixel.get_alpha();
+                                out_pixel.red   = new_pixel.get_red();
+                                out_pixel.green = new_pixel.get_green();
+                                out_pixel.blue  = new_pixel.get_blue();
                             }
                             _ => return Err(Error::BadCallbackParameter)
                         }
@@ -223,28 +164,31 @@ impl AdobePluginGlobal for Plugin {
                     input_world.iterate_with(&mut output_world, 0, progress_final, None, |_x: i32, _y: i32, pixel: ae::GenericPixel, out_pixel: ae::GenericPixelMut| -> Result<(), Error> {
                         match (pixel, out_pixel) {
                             (ae::GenericPixel::Pixel8(pixel), ae::GenericPixelMut::Pixel8(out_pixel)) => {
-                                let new_pixel = unmult_rgba8(pixel.red, pixel.green, pixel.blue, pixel.alpha);
-                                let new_pixel = new_pixel.unwrap_or((0, 0, 0, 0));
-                                out_pixel.alpha = new_pixel.3;
-                                out_pixel.red   = new_pixel.0;
-                                out_pixel.green = new_pixel.1;
-                                out_pixel.blue  = new_pixel.2;
+                                log::trace!("Pixel8");
+                                log::trace!("r: {}, g: {}, b: {}, a: {}", pixel.red, pixel.green, pixel.blue, pixel.alpha);
+                                let new_pixel = RgbaPixel::new(pixel.red, pixel.green, pixel.blue, pixel.alpha).unmult_rgba();
+                                out_pixel.alpha = new_pixel.get_alpha();
+                                out_pixel.red   = new_pixel.get_red();
+                                out_pixel.green = new_pixel.get_green();
+                                out_pixel.blue  = new_pixel.get_blue();
                             }
                             (ae::GenericPixel::Pixel16(pixel), ae::GenericPixelMut::Pixel16(out_pixel)) => {
-                                let new_pixel = unmult_rgba16(pixel.red, pixel.green, pixel.blue, pixel.alpha);
-                                let new_pixel = new_pixel.unwrap_or((0, 0, 0, 0));
-                                out_pixel.alpha = new_pixel.3;
-                                out_pixel.red   = new_pixel.0;
-                                out_pixel.green = new_pixel.1;
-                                out_pixel.blue  = new_pixel.2;
+                                log::trace!("Pixel16");
+                                log::trace!("r: {}, g: {}, b: {}, a: {}", pixel.red, pixel.green, pixel.blue, pixel.alpha);
+                                let new_pixel = RgbaPixel::new(pixel.red, pixel.green, pixel.blue, pixel.alpha).unmult_rgba();
+                                out_pixel.alpha = new_pixel.get_alpha();
+                                out_pixel.red   = new_pixel.get_red();
+                                out_pixel.green = new_pixel.get_green();
+                                out_pixel.blue  = new_pixel.get_blue();
                             }
                             (ae::GenericPixel::PixelF32(pixel), ae::GenericPixelMut::PixelF32(out_pixel)) => {
-                                let new_pixel = unmult_rgbaf32(pixel.red, pixel.green, pixel.blue, pixel.alpha);
-                                let new_pixel = new_pixel.unwrap_or((0.0, 0.0, 0.0, 0.0));
-                                out_pixel.alpha = new_pixel.3;
-                                out_pixel.red   = new_pixel.0;
-                                out_pixel.green = new_pixel.1;
-                                out_pixel.blue  = new_pixel.2;
+                                log::trace!("PixelF32");
+                                log::trace!("r: {}, g: {}, b: {}, a: {}", pixel.red, pixel.green, pixel.blue, pixel.alpha);
+                                let new_pixel = RgbaPixel::new(pixel.red, pixel.green, pixel.blue, pixel.alpha).unmult_rgba();
+                                out_pixel.alpha = new_pixel.get_alpha();
+                                out_pixel.red   = new_pixel.get_red();
+                                out_pixel.green = new_pixel.get_green();
+                                out_pixel.blue  = new_pixel.get_blue();
                             }
                             _ => return Err(Error::BadCallbackParameter)
                         }
