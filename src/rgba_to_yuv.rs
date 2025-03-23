@@ -87,71 +87,71 @@ impl<T> RgbaPixel<T> where T: PixelCompute {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Clone)]
-pub struct YuvaPixel<T: PixelCompute> {
-    y: T,
-    u: T,
-    v: T,
-    alpha: T,
-}
+// #[derive(Debug, Default, PartialEq, Clone)]
+// pub struct YuvaPixel<T: PixelCompute> {
+//     y: T,
+//     u: T,
+//     v: T,
+//     alpha: T,
+// }
 
-impl<T> YuvaPixel<T> where T: PixelCompute {
-    pub fn new(y: T, u: T, v: T, a: T) -> Self {
-        Self { y, u, v, alpha: a }
-    }
+// impl<T> YuvaPixel<T> where T: PixelCompute {
+//     pub fn new(y: T, u: T, v: T, a: T) -> Self {
+//         Self { y, u, v, alpha: a }
+//     }
 
-    #[inline]
-    pub fn get_y(&self) -> T { self.y }
-    #[inline]
-    pub fn get_u(&self) -> T { self.u }
-    #[inline]
-    pub fn get_v(&self) -> T { self.v }
-    #[inline]
-    pub fn get_alpha(&self) -> T { self.alpha }
+//     #[inline]
+//     pub fn get_y(&self) -> T { self.y }
+//     #[inline]
+//     pub fn get_u(&self) -> T { self.u }
+//     #[inline]
+//     pub fn get_v(&self) -> T { self.v }
+//     #[inline]
+//     pub fn get_alpha(&self) -> T { self.alpha }
 
-    pub fn zero() -> Self {
-        Self { y: T::ZERO, u: T::ZERO, v: T::ZERO, alpha: T::ZERO }
-    }
-}
+//     pub fn zero() -> Self {
+//         Self { y: T::ZERO, u: T::ZERO, v: T::ZERO, alpha: T::ZERO }
+//     }
+// }
 
-impl<T> From<RgbaPixel<T>> for YuvaPixel<T> where T: PixelCompute {
-    fn from(rgba: RgbaPixel<T>) -> Self {
-        let r = rgba.red.to_f32();
-        let g = rgba.green.to_f32();
-        let b = rgba.blue.to_f32();
-        let a = rgba.alpha.to_f32();
+// impl<T> From<RgbaPixel<T>> for YuvaPixel<T> where T: PixelCompute {
+//     fn from(rgba: RgbaPixel<T>) -> Self {
+//         let r = rgba.red.to_f32();
+//         let g = rgba.green.to_f32();
+//         let b = rgba.blue.to_f32();
+//         let a = rgba.alpha.to_f32();
 
-        let y = 0.299 * r + 0.587 * g + 0.114 * b;
-        let u = -0.168_935  * r - 0.331_665  * g + 0.500_59 * b;
-        let v = 0.499_813  * r - 0.418_531  * g - 0.081_282 * b;
+//         let y = 0.299 * r + 0.587 * g + 0.114 * b;
+//         let u = -0.168_935  * r - 0.331_665  * g + 0.500_59 * b;
+//         let v = 0.499_813  * r - 0.418_531  * g - 0.081_282 * b;
 
-        YuvaPixel::<T>::new(T::from_f32(y), T::from_f32(u), T::from_f32(v), T::from_f32(a))
-    }
-}
+//         YuvaPixel::<T>::new(T::from_f32(y), T::from_f32(u), T::from_f32(v), T::from_f32(a))
+//     }
+// }
 
-impl<T> From<YuvaPixel<T>> for RgbaPixel<T>
-where
-    T: PixelCompute,
-{
-    fn from(yuva: YuvaPixel<T>) -> Self {
-        let y = yuva.y.to_f32();
-        let u = yuva.u.to_f32();
-        let v = yuva.v.to_f32();
-        let a = yuva.alpha.to_f32();
+// impl<T> From<YuvaPixel<T>> for RgbaPixel<T>
+// where
+//     T: PixelCompute,
+// {
+//     fn from(yuva: YuvaPixel<T>) -> Self {
+//         let y = yuva.y.to_f32();
+//         let u = yuva.u.to_f32();
+//         let v = yuva.v.to_f32();
+//         let a = yuva.alpha.to_f32();
 
-        // 逆変換行列（概ね）の係数
-        let r = y - 0.0 + 1.403 * v;
-        let g = y - 0.344 * u - 0.714 * v;
-        let b = y + 1.770 * u + 0.0;
+//         // 逆変換行列（概ね）の係数
+//         let r = y - 0.0 + 1.403 * v;
+//         let g = y - 0.344 * u - 0.714 * v;
+//         let b = y + 1.770 * u + 0.0;
 
-        RgbaPixel::<T>::new(
-            T::from_f32(r),
-            T::from_f32(g),
-            T::from_f32(b),
-            T::from_f32(a),
-        )
-    }
-}
+//         RgbaPixel::<T>::new(
+//             T::from_f32(r),
+//             T::from_f32(g),
+//             T::from_f32(b),
+//             T::from_f32(a),
+//         )
+//     }
+// }
 
 fn max3<T: PartialOrd>(a: T, b: T, c: T) -> T {
     if a >= b && a >= c { a } else if b >= c { b } else { c }
@@ -169,14 +169,14 @@ mod tests {
         assert_eq!(p.get_alpha(), 4);
     }
 
-    #[test]
-    fn test_yuva_pixel() {
-        let p = YuvaPixel::<u8>::new(1, 2, 3, 4);
-        assert_eq!(p.get_y(), 1);
-        assert_eq!(p.get_u(), 2);
-        assert_eq!(p.get_v(), 3);
-        assert_eq!(p.get_alpha(), 4);
-    }
+    // #[test]
+    // fn test_yuva_pixel() {
+    //     let p = YuvaPixel::<u8>::new(1, 2, 3, 4);
+    //     assert_eq!(p.get_y(), 1);
+    //     assert_eq!(p.get_u(), 2);
+    //     assert_eq!(p.get_v(), 3);
+    //     assert_eq!(p.get_alpha(), 4);
+    // }
 
     #[test]
     fn test_pixel_compute() {
@@ -221,14 +221,14 @@ mod tests {
         assert_eq!(p.get_alpha(), 0);
     }
 
-    #[test]
-    fn test_yuva_pixel_zero() {
-        let p = YuvaPixel::<u8>::zero();
-        assert_eq!(p.get_y(), 0);
-        assert_eq!(p.get_u(), 0);
-        assert_eq!(p.get_v(), 0);
-        assert_eq!(p.get_alpha(), 0);
-    }
+    // #[test]
+    // fn test_yuva_pixel_zero() {
+    //     let p = YuvaPixel::<u8>::zero();
+    //     assert_eq!(p.get_y(), 0);
+    //     assert_eq!(p.get_u(), 0);
+    //     assert_eq!(p.get_v(), 0);
+    //     assert_eq!(p.get_alpha(), 0);
+    // }
 
     #[test]
     fn test_rgba_pixel_from_f32() {
@@ -240,15 +240,15 @@ mod tests {
         assert_eq!(p_f32.alpha, 4.0 / 255.0);
     }
 
-    #[test]
-    fn test_yuva_pixel_from_f32() {
-        let p = YuvaPixel::<u8>::new(1, 2, 3, 4);
-        let p_f32 = YuvaPixel::<f32>::new(p.y.to_f32(), p.u.to_f32(), p.v.to_f32(), p.alpha.to_f32());
-        assert_eq!(p_f32.y, 1.0 / 255.0);
-        assert_eq!(p_f32.u, 2.0 / 255.0);
-        assert_eq!(p_f32.v, 3.0 / 255.0);
-        assert_eq!(p_f32.alpha, 4.0 / 255.0);
-    }
+    // #[test]
+    // fn test_yuva_pixel_from_f32() {
+    //     let p = YuvaPixel::<u8>::new(1, 2, 3, 4);
+    //     let p_f32 = YuvaPixel::<f32>::new(p.y.to_f32(), p.u.to_f32(), p.v.to_f32(), p.alpha.to_f32());
+    //     assert_eq!(p_f32.y, 1.0 / 255.0);
+    //     assert_eq!(p_f32.u, 2.0 / 255.0);
+    //     assert_eq!(p_f32.v, 3.0 / 255.0);
+    //     assert_eq!(p_f32.alpha, 4.0 / 255.0);
+    // }
 
     #[test]
     fn test_rgba_pixel_to_f32() {
@@ -259,37 +259,37 @@ mod tests {
         assert_eq!(p.alpha.to_f32(), 4.0 / 255.0);
     }
 
-    #[test]
-    fn test_yuva_pixel_to_f32() {
-        let p = YuvaPixel::<u8>::new(1, 2, 3, 4);
-        assert_eq!(p.y.to_f32(), 1.0 / 255.0);
-        assert_eq!(p.u.to_f32(), 2.0 / 255.0);
-        assert_eq!(p.v.to_f32(), 3.0 / 255.0);
-        assert_eq!(p.alpha.to_f32(), 4.0 / 255.0);
-    }
+    // #[test]
+    // fn test_yuva_pixel_to_f32() {
+    //     let p = YuvaPixel::<u8>::new(1, 2, 3, 4);
+    //     assert_eq!(p.y.to_f32(), 1.0 / 255.0);
+    //     assert_eq!(p.u.to_f32(), 2.0 / 255.0);
+    //     assert_eq!(p.v.to_f32(), 3.0 / 255.0);
+    //     assert_eq!(p.alpha.to_f32(), 4.0 / 255.0);
+    // }
 
-    #[test]
-    fn test_rgba_to_yuva() {
-        let rgba = RgbaPixel::<f32>::new(0.0, 0.0, 1.0, 1.0);
-        let yuva = YuvaPixel::<f32>::from(rgba.clone());
-        let converted_rgba = RgbaPixel::<f32>::from(yuva);
-        assert!((rgba.red - converted_rgba.red).abs() < 1e-3);
-        assert!((rgba.green - converted_rgba.green).abs() < 1e-3);
-        assert!((rgba.blue - converted_rgba.blue).abs() < 1e-3);
-        assert!((rgba.alpha - converted_rgba.alpha).abs() < 1e-3);
-    }
+    // #[test]
+    // fn test_rgba_to_yuva() {
+    //     let rgba = RgbaPixel::<f32>::new(0.0, 0.0, 1.0, 1.0);
+    //     let yuva = YuvaPixel::<f32>::from(rgba.clone());
+    //     let converted_rgba = RgbaPixel::<f32>::from(yuva);
+    //     assert!((rgba.red - converted_rgba.red).abs() < 1e-3);
+    //     assert!((rgba.green - converted_rgba.green).abs() < 1e-3);
+    //     assert!((rgba.blue - converted_rgba.blue).abs() < 1e-3);
+    //     assert!((rgba.alpha - converted_rgba.alpha).abs() < 1e-3);
+    // }
 
-    #[test]
-    fn test_yuva_to_rgba() {
-        let rgba = RgbaPixel::<f32>::new(0.392_156_87, 0.588_235_3, 0.784_313_74, 1.0);
-        let yuva = YuvaPixel::<f32>::from(rgba);
-        let converted_rgba = RgbaPixel::<f32>::from(yuva.clone());
-        let converted_yuva = YuvaPixel::<f32>::from(converted_rgba);
-        assert!((yuva.y - converted_yuva.y).abs() < 1e-3);
-        assert!((yuva.u - converted_yuva.u).abs() < 1e-3);
-        assert!((yuva.v - converted_yuva.v).abs() < 1e-3);
-        assert!((yuva.alpha - converted_yuva.alpha).abs() < 1e-3);
-    }
+    // #[test]
+    // fn test_yuva_to_rgba() {
+    //     let rgba = RgbaPixel::<f32>::new(0.392_156_87, 0.588_235_3, 0.784_313_74, 1.0);
+    //     let yuva = YuvaPixel::<f32>::from(rgba);
+    //     let converted_rgba = RgbaPixel::<f32>::from(yuva.clone());
+    //     let converted_yuva = YuvaPixel::<f32>::from(converted_rgba);
+    //     assert!((yuva.y - converted_yuva.y).abs() < 1e-3);
+    //     assert!((yuva.u - converted_yuva.u).abs() < 1e-3);
+    //     assert!((yuva.v - converted_yuva.v).abs() < 1e-3);
+    //     assert!((yuva.alpha - converted_yuva.alpha).abs() < 1e-3);
+    // }
 
     fn unmult_rgba8(r: u8, g: u8, b: u8, a: u8) -> Option<(u8, u8, u8, u8)> {
         if a == 0 {
