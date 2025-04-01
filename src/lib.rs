@@ -167,7 +167,7 @@ pub fn inner_render_2(pixel: &PF_Pixel, out_pixel: &mut PF_Pixel) {
     let max_rgb = r.max(g).max(b);
     let offset = (max_rgb as usize) << 8;
 
-    let a = (((a as u16) * max_rgb as u16) >> 8) as u8;
+    let a = (((a as usize) * max_rgb as usize) >> 8) as u8;
     out_pixel.alpha = a;
     out_pixel.red   = LUT[offset + r as usize];
     out_pixel.green = LUT[offset + g as usize];
@@ -196,8 +196,15 @@ mod tests {
     }
 
     #[bench]
-    fn bench_inner_render(b: &mut Bencher) {
-        let input_pixels = vec![PF_Pixel { red: 0xFF, green: 0, blue: 0, alpha: 0x88 }; 3840 * 2160];
+    fn bench_inner_render_jpg(b: &mut Bencher) {
+        let img = image::open("./4k.jpg").unwrap();
+        let input_pixels = img.to_rgba8().into_raw();
+        let input_pixels = input_pixels.chunks_exact(4).map(|chunk| PF_Pixel {
+            red: chunk[0],
+            green: chunk[1],
+            blue: chunk[2],
+            alpha: chunk[3],
+        }).collect::<Vec<_>>();
         let mut output_pixels = vec![PF_Pixel { red: 0, green: 0, blue: 0, alpha: 0 }; 3840 * 2160];
         b.iter(|| {
             for (input_pixel, output_pixel) in input_pixels.iter().zip(output_pixels.iter_mut()) {
@@ -207,9 +214,52 @@ mod tests {
     }
 
     #[bench]
-    fn bench_inner_render_2(b: &mut Bencher) {
-        let input_pixels = vec![PF_Pixel { red: 0xFF, green: 0, blue: 0, alpha: 0x88 }; 3840 * 2160];
+    fn bench_inner_render_2_jpg(b: &mut Bencher) {
+        let img = image::open("./4k.jpg").unwrap();
+        let input_pixels = img.to_rgba8().into_raw();
+        let input_pixels = input_pixels.chunks_exact(4).map(|chunk| PF_Pixel {
+            red: chunk[0],
+            green: chunk[1],
+            blue: chunk[2],
+            alpha: chunk[3],
+        }).collect::<Vec<_>>();
         let mut output_pixels = vec![PF_Pixel { red: 0, green: 0, blue: 0, alpha: 0 }; 3840 * 2160];
+        b.iter(|| {
+            for (input_pixel, output_pixel) in input_pixels.iter().zip(output_pixels.iter_mut()) {
+                inner_render_2(input_pixel, output_pixel);
+            }
+        });
+    }
+
+    #[bench]
+    fn bench_inner_render_png(b: &mut Bencher) {
+        let img = image::open("./4k.png").unwrap();
+        let input_pixels = img.to_rgba8().into_raw();
+        let input_pixels = input_pixels.chunks_exact(4).map(|chunk| PF_Pixel {
+            red: chunk[0],
+            green: chunk[1],
+            blue: chunk[2],
+            alpha: chunk[3],
+        }).collect::<Vec<_>>();
+        let mut output_pixels = vec![PF_Pixel { red: 0, green: 0, blue: 0, alpha: 0 }; 3840 * 3840];
+        b.iter(|| {
+            for (input_pixel, output_pixel) in input_pixels.iter().zip(output_pixels.iter_mut()) {
+                inner_render(input_pixel, output_pixel);
+            }
+        });
+    }
+
+    #[bench]
+    fn bench_inner_render_2_png(b: &mut Bencher) {
+        let img = image::open("./4k.png").unwrap();
+        let input_pixels = img.to_rgba8().into_raw();
+        let input_pixels = input_pixels.chunks_exact(4).map(|chunk| PF_Pixel {
+            red: chunk[0],
+            green: chunk[1],
+            blue: chunk[2],
+            alpha: chunk[3],
+        }).collect::<Vec<_>>();
+        let mut output_pixels = vec![PF_Pixel { red: 0, green: 0, blue: 0, alpha: 0 }; 3840 * 3840];
         b.iter(|| {
             for (input_pixel, output_pixel) in input_pixels.iter().zip(output_pixels.iter_mut()) {
                 inner_render_2(input_pixel, output_pixel);

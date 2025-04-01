@@ -25,3 +25,6 @@ yuvutils-rs = "0.8.1"
 
 [patch.crates-io]
 win_dbg_logger = { git = "https://github.com/wladwm/win_dbg_logger", branch = "master" }
+
+[dev-dependencies]
+image = "0.25.6"
