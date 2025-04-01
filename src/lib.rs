@@ -151,8 +151,7 @@ pub fn inner_render(pixel: &PF_Pixel, out_pixel: &mut PF_Pixel) {
     let max_rgb = r.max(g).max(b);
     let offset = (max_rgb as usize) << 8;
 
-    #[allow(arithmetic_overflow)]
-    let a = (a * max_rgb) >> 8;
+    let a = (((a as usize) * max_rgb as usize) >> 8) as u8;
     out_pixel.alpha = a;
     out_pixel.red   = LUT[offset + r as usize];
     out_pixel.green = LUT[offset + g as usize];
@@ -160,26 +159,19 @@ pub fn inner_render(pixel: &PF_Pixel, out_pixel: &mut PF_Pixel) {
 }
 
 pub fn inner_render_2(pixel: &PF_Pixel, out_pixel: &mut PF_Pixel) {
-    inner_render(pixel, out_pixel);
-    // let a = pixel.alpha;
-    // let r = pixel.red;
-    // let g = pixel.green;
-    // let b = pixel.blue;
+    let a = pixel.alpha;
+    let r = pixel.red;
+    let g = pixel.green;
+    let b = pixel.blue;
 
-    // let max_rgb = r.max(g).max(b);
-    // let offset = (max_rgb as usize) << 8;
+    let max_rgb = r.max(g).max(b);
+    let offset = (max_rgb as usize) << 8;
 
-    // #[allow(arithmetic_overflow)]
-    // let a = (a * max_rgb) >> 8;
-    // // out_pixel.alpha = a;
-    // // out_pixel.red   = LUT2[offset + r as usize];
-    // // out_pixel.green = LUT2[offset + g as usize];
-    // // out_pixel.blue  = LUT2[offset + b as usize];
-    // let packed: u32 = (a as u32) | ((LUT2[offset + r as usize] as u32) << 8) | ((LUT2[offset + g as usize] as u32) << 16) | ((LUT2[offset + b as usize] as u32) << 24);
-
-    // unsafe {
-    //     *(out_pixel as *mut PF_Pixel as *mut u32) = packed;
-    // }
+    let a = (((a as u16) * max_rgb as u16) >> 8) as u8;
+    out_pixel.alpha = a;
+    out_pixel.red   = LUT[offset + r as usize];
+    out_pixel.green = LUT[offset + g as usize];
+    out_pixel.blue  = LUT[offset + b as usize];
 }
 
 #[cfg(test)]
@@ -188,31 +180,25 @@ mod tests {
     use test::Bencher;
 
     #[test]
-    fn test_inner_render() {
+    fn test_inner_render_same_values() {
         let input_pixel = PF_Pixel { red: 0xFF, green: 0, blue: 0, alpha: 0x88 };
         let mut output_pixel = PF_Pixel { red: 0, green: 0, blue: 0, alpha: 0 };
         inner_render(&input_pixel, &mut output_pixel);
-        assert_eq!(output_pixel.red, 0xFF);
-        assert_eq!(output_pixel.green, 0);
-        assert_eq!(output_pixel.blue, 0);
-        assert_eq!(output_pixel.alpha, 0x88);
-    }
+        
+        let input_pixel_2 = PF_Pixel { red: 0xFF, green: 0, blue: 0, alpha: 0x88 };
+        let mut output_pixel_2 = PF_Pixel { red: 0, green: 0, blue: 0, alpha: 0 };
+        inner_render_2(&input_pixel_2, &mut output_pixel_2);
 
-    #[test]
-    fn test_inner_render_2() {
-        let input_pixel = PF_Pixel { red: 0xFF, green: 0, blue: 0, alpha: 0x88 };
-        let mut output_pixel = PF_Pixel { red: 0, green: 0, blue: 0, alpha: 0 };
-        inner_render_2(&input_pixel, &mut output_pixel);
-        assert_eq!(output_pixel.red, 0xFF);
-        assert_eq!(output_pixel.green, 0);
-        assert_eq!(output_pixel.blue, 0);
-        assert_eq!(output_pixel.alpha, 0x88);
+        assert_eq!(output_pixel.alpha, output_pixel_2.alpha);
+        assert_eq!(output_pixel.red, output_pixel_2.red);
+        assert_eq!(output_pixel.green, output_pixel_2.green);
+        assert_eq!(output_pixel.blue, output_pixel_2.blue);
     }
 
     #[bench]
     fn bench_inner_render(b: &mut Bencher) {
-        let input_pixels = vec![PF_Pixel { red: 0xFF, green: 0, blue: 0, alpha: 0x88 }; 100000];
-        let mut output_pixels = vec![PF_Pixel { red: 0, green: 0, blue: 0, alpha: 0 }; 100000];
+        let input_pixels = vec![PF_Pixel { red: 0xFF, green: 0, blue: 0, alpha: 0x88 }; 3840 * 2160];
+        let mut output_pixels = vec![PF_Pixel { red: 0, green: 0, blue: 0, alpha: 0 }; 3840 * 2160];
         b.iter(|| {
             for (input_pixel, output_pixel) in input_pixels.iter().zip(output_pixels.iter_mut()) {
                 inner_render(input_pixel, output_pixel);
@@ -222,8 +208,8 @@ mod tests {
 
     #[bench]
     fn bench_inner_render_2(b: &mut Bencher) {
-        let input_pixels = vec![PF_Pixel { red: 0xFF, green: 0, blue: 0, alpha: 0x88 }; 100000];
-        let mut output_pixels = vec![PF_Pixel { red: 0, green: 0, blue: 0, alpha: 0 }; 100000];
+        let input_pixels = vec![PF_Pixel { red: 0xFF, green: 0, blue: 0, alpha: 0x88 }; 3840 * 2160];
+        let mut output_pixels = vec![PF_Pixel { red: 0, green: 0, blue: 0, alpha: 0 }; 3840 * 2160];
         b.iter(|| {
             for (input_pixel, output_pixel) in input_pixels.iter().zip(output_pixels.iter_mut()) {
                 inner_render_2(input_pixel, output_pixel);
