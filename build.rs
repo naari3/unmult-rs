@@ -1,3 +1,7 @@
+use std::path::Path;
+use std::{fs::File, io::BufWriter};
+use std::io::Write;
+
 use pipl::*;
 
 const PF_PLUG_IN_VERSION: u16 = 13;
@@ -47,5 +51,29 @@ fn main() {
         Property::AE_Effect_Match_Name(EFFECT_NAME),
         Property::AE_Reserved_Info(8),
         Property::AE_Effect_Support_URL("https://www.adobe.com"),
-    ])
+    ]);
+
+    // Generate the LUT
+    let out_path = Path::new("src/generated_lut.rs");
+    let mut file = BufWriter::new(File::create(out_path).unwrap());
+
+    writeln!(file, "pub static LUT: [u8; 65536] = [").unwrap();
+
+    for i in 0..=0xFFFF {
+        let alpha = (i >> 8) as u8;
+        let value = (i & 0xFF) as u8;
+        let result = if alpha == 0 {
+            0
+        } else {
+            let temp = ((value as u32) << 8) / (alpha as u32);
+            if temp > 0xFF {
+                0xFF
+            } else {
+                temp as u8
+            }
+        };
+        writeln!(file, "    {},", result).unwrap();
+    }
+
+    writeln!(file, "];").unwrap();
 }
