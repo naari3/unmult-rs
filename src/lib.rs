@@ -1,7 +1,37 @@
+use std::mem::MaybeUninit;
+use std::sync::OnceLock;
+
 use after_effects as ae;
-use rgba_to_yuv::RgbaPixel;
+use rgba_to_yuv::{buffers_from_pixels, AbstractRGBAPixel, ArgbPixel, RgbaPixel};
 
 mod rgba_to_yuv;
+mod renderer;
+static LUT: OnceLock<[u8; 65536]> = OnceLock::new();
+
+// LUT for unpremultiplying alpha
+fn get_lut() -> &'static [u8; 65536] {
+    LUT.get_or_init(|| {
+        let mut lut = [0u8; 65536];
+        for (i, lut_value) in lut.iter_mut().enumerate() {
+            let alpha = (i >> 8) as u8;
+            let value = (i & 0xFF) as u8;
+
+            *lut_value = if alpha == 0 {
+                0
+            } else {
+                let temp = ((value as u32) << 8) / (alpha as u32);
+                if temp > 0xFF {
+                    0xFF
+                } else {
+                    temp as u8
+                }
+            };
+        }
+
+        lut[0xFFFF] = 0xFF;
+        lut
+    })
+}
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 enum Params {
@@ -76,7 +106,10 @@ impl Plugin {
             return Err(Error::BadCallbackParameter);
         }
 
-        self.do_render(in_layer, out_layer)?;
+        let in_pixel_format = in_layer.pixel_format()?;
+        let out_pixel_format = out_layer.pixel_format()?;
+
+        self.do_render(in_layer, out_layer, in_pixel_format, out_pixel_format)?;
     
         Ok(())
     }
@@ -98,43 +131,116 @@ impl Plugin {
         };
 
         if let Ok(Some(output_world)) = cb.checkout_output() {
-            self.do_render(input_world, output_world)?;
+            let in_pixel_format = input_world.pixel_format()?;
+            let out_pixel_format = output_world.pixel_format()?;
+            self.do_render(input_world, output_world, in_pixel_format, out_pixel_format)?;
         }
 
         cb.checkin_layer_pixels(0)?;
         Ok(())
     }
 
-    fn do_render(&self, in_layer: ae::Layer, mut out_layer: ae::Layer) -> Result<(), Error> {
-        let progress_final = out_layer.height() as _;
-        in_layer.iterate_with(&mut out_layer, 0, progress_final, None, |_x: i32, _y: i32, pixel: ae::GenericPixel, out_pixel: ae::GenericPixelMut| -> Result<(), Error> {
-            match (pixel, out_pixel) {
-                (ae::GenericPixel::Pixel8(pixel), ae::GenericPixelMut::Pixel8(out_pixel)) => {
-                    let new_pixel = RgbaPixel::new(pixel.red, pixel.green, pixel.blue, pixel.alpha).unmult_rgba();
-                    out_pixel.alpha = new_pixel.get_alpha();
-                    out_pixel.red   = new_pixel.get_red();
-                    out_pixel.green = new_pixel.get_green();
-                    out_pixel.blue  = new_pixel.get_blue();
-                }
-                (ae::GenericPixel::Pixel16(pixel), ae::GenericPixelMut::Pixel16(out_pixel)) => {
-                    let new_pixel = RgbaPixel::new(pixel.red, pixel.green, pixel.blue, pixel.alpha).unmult_rgba();
-                    out_pixel.alpha = new_pixel.get_alpha();
-                    out_pixel.red   = new_pixel.get_red();
-                    out_pixel.green = new_pixel.get_green();
-                    out_pixel.blue  = new_pixel.get_blue();
-                }
-                (ae::GenericPixel::PixelF32(pixel), ae::GenericPixelMut::PixelF32(out_pixel)) => {
-                    let new_pixel = RgbaPixel::new(pixel.red, pixel.green, pixel.blue, pixel.alpha).unmult_rgba();
-                    out_pixel.alpha = new_pixel.get_alpha();
-                    out_pixel.red   = new_pixel.get_red();
-                    out_pixel.green = new_pixel.get_green();
-                    out_pixel.blue  = new_pixel.get_blue();
-                }
-                _ => return Err(Error::BadCallbackParameter)
-            }
+    fn do_render(&self, in_layer: ae::Layer, mut out_layer: ae::Layer, in_pixel_format: PixelFormat, out_pixel_format: PixelFormat) -> Result<(), Error> {
+        use rayon::prelude::*;
 
-            Ok(())
-        })?;
+        let in_buffer = in_layer.buffer();
+        let out_buffer = out_layer.buffer_mut();
+        log::info!("Render {:?} {:?} in_buffer.len() = {}, out_buffer.len() = {}", in_pixel_format, out_pixel_format, in_buffer.len(), out_buffer.len());
+        // if in_buffer.len() != out_buffer.len() {
+        //     let progress_final = out_layer.height() as _;
+        //     in_layer.iterate_with(&mut out_layer, 0, progress_final, None, |_x: i32, _y: i32, pixel: ae::GenericPixel, out_pixel: ae::GenericPixelMut| -> Result<(), Error> {
+        //         if _x == 1 && _y == 1 {
+        //             match (pixel, out_pixel) {
+        //                 (ae::GenericPixel::Pixel8(pixel), ae::GenericPixelMut::Pixel8(out_pixel)) => {
+        //                     log::trace!("Pixel8 pixel = {:?}, out_pixel = {:?}", pixel, out_pixel);
+        //                 }
+        //                 (ae::GenericPixel::Pixel16(pixel), ae::GenericPixelMut::Pixel16(out_pixel)) => {
+        //                     log::trace!("Pixel16 pixel = {:?}, out_pixel = {:?}", pixel, out_pixel);
+        //                 }
+        //                 (ae::GenericPixel::PixelF32(pixel), ae::GenericPixelMut::PixelF32(out_pixel)) => {
+        //                     log::trace!("PixelF32 pixel = {:?}, out_pixel = {:?}", pixel, out_pixel);
+        //                 }
+        //                 _ => {
+        //                     log::trace!("BadCallbackParameter");
+        //                     return Err(Error::BadCallbackParameter);
+        //                 }
+        //             }
+        //         }
+        //         Ok(())
+        //     })?;
+        //     return Ok(());
+        // }
+
+        let in_pixels = ArgbPixel::<u8>::buffer_as_slice_from(in_buffer);
+        log::info!("in_pixels.len() = {}", in_pixels.len());
+        log::info!("in_pixels[0..40] = {:?}", &in_pixels[0..40]);
+
+        let out_pixels = in_pixels.par_iter().map(|pixel| pixel.unmult_rgba()).collect::<Vec<_>>();
+        log::info!("out_pixels.len() = {}", out_pixels.len());
+        let out_pixels_buffer = buffers_from_pixels(&out_pixels);
+        log::info!("pixels.len() = {}", out_pixels_buffer.len());
+        log::info!("pixels[0..40] = {:?}", &out_pixels_buffer[0..40]);
+
+        log::info!("out_buffer.len() = {}", out_buffer.len());
+        log::info!("out_buffer[0..40] = {:?}", &out_buffer[0..40]);
+
+        log::info!("out_buffer.len() = {}, out_pixels_buffer.len() = {}, in_buffer.len() = {}", out_buffer.len(), out_pixels_buffer.len(), in_buffer.len());
+        // out_buffer.copy_from_slice(pixels);
+        out_buffer.copy_from_slice(out_pixels_buffer);
+        // out_buffer[0] = 123;
+        // out_buffer[4] = 123;
+        // out_buffer[8] = 123;
+        // out_buffer[out_buffer.len() - 1] = 123;
+        log::info!("out_buffer.len() = {}", out_buffer.len());
+        log::info!("out_buffer[0..40] = {:?}", &out_buffer[0..40]);
+        
+        // // buffer.into_par_iter().map(||)
+        // let progress_final = out_layer.height() as _;
+        // in_layer.iterate_with(&mut out_layer, 0, progress_final, None, |_x: i32, _y: i32, pixel: ae::GenericPixel, out_pixel: ae::GenericPixelMut| -> Result<(), Error> {
+        //     if _x == 1 && _y == 1 {
+        //         match (pixel, out_pixel) {
+        //             (ae::GenericPixel::Pixel8(pixel), ae::GenericPixelMut::Pixel8(out_pixel)) => {
+        //                 log::trace!("Pixel8 pixel = {:?}, out_pixel = {:?}", pixel, out_pixel);
+        //             }
+        //             (ae::GenericPixel::Pixel16(pixel), ae::GenericPixelMut::Pixel16(out_pixel)) => {
+        //                 log::trace!("Pixel16 pixel = {:?}, out_pixel = {:?}", pixel, out_pixel);
+        //             }
+        //             (ae::GenericPixel::PixelF32(pixel), ae::GenericPixelMut::PixelF32(out_pixel)) => {
+        //                 log::trace!("PixelF32 pixel = {:?}, out_pixel = {:?}", pixel, out_pixel);
+        //             }
+        //             _ => {
+        //                 log::trace!("BadCallbackParameter");
+        //                 return Err(Error::BadCallbackParameter);
+        //             }
+        //         }
+        //     }
+        //     // match (pixel, out_pixel) {
+        //     //     (ae::GenericPixel::Pixel8(pixel), ae::GenericPixelMut::Pixel8(out_pixel)) => {
+        //     //         let new_pixel = RgbaPixel::new(pixel.red, pixel.green, pixel.blue, pixel.alpha).unmult_rgba();
+        //     //         out_pixel.alpha = new_pixel.alpha();
+        //     //         out_pixel.red   = new_pixel.red();
+        //     //         out_pixel.green = new_pixel.green();
+        //     //         out_pixel.blue  = new_pixel.blue();
+        //     //     }
+        //     //     (ae::GenericPixel::Pixel16(pixel), ae::GenericPixelMut::Pixel16(out_pixel)) => {
+        //     //         let new_pixel = RgbaPixel::new(pixel.red, pixel.green, pixel.blue, pixel.alpha).unmult_rgba();
+        //     //         out_pixel.alpha = new_pixel.alpha();
+        //     //         out_pixel.red   = new_pixel.red();
+        //     //         out_pixel.green = new_pixel.green();
+        //     //         out_pixel.blue  = new_pixel.blue();
+        //     //     }
+        //     //     (ae::GenericPixel::PixelF32(pixel), ae::GenericPixelMut::PixelF32(out_pixel)) => {
+        //     //         let new_pixel = RgbaPixel::new(pixel.red, pixel.green, pixel.blue, pixel.alpha).unmult_rgba();
+        //     //         out_pixel.alpha = new_pixel.alpha();
+        //     //         out_pixel.red   = new_pixel.red();
+        //     //         out_pixel.green = new_pixel.green();
+        //     //         out_pixel.blue  = new_pixel.blue();
+        //     //     }
+        //     //     _ => return Err(Error::BadCallbackParameter)
+        //     // }
+
+        //     Ok(())
+        // })?;
         Ok(())
     }
 }

@@ -3,6 +3,13 @@ name = "unmult-rs"
 version = "0.0.1"
 edition = "2021"
 
+[profile.dev]
+opt-level = 3
+
+# [profile.release]
+# debug = true
+# debug-assertions = true
+
 [lib]
 crate-type = ["cdylib"]
 

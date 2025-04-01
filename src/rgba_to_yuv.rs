@@ -28,6 +28,7 @@ impl PixelCompute for f32 {
     fn from_f32(val: f32) -> Self { val }
 }
 
+#[repr(C)]
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct RgbaPixel<T: PixelCompute> {
     red: T,
@@ -36,32 +37,33 @@ pub struct RgbaPixel<T: PixelCompute> {
     alpha: T,
 }
 
-impl<T> RgbaPixel<T> where T: PixelCompute {
-    pub fn new(r: T, g: T, b: T, a: T) -> Self {
-        Self { red: r, green: g, blue: b, alpha: a }
-    }
+#[repr(C)]
+#[derive(Debug, Default, PartialEq, Clone)]
+pub struct ArgbPixel<T: PixelCompute> {
+    alpha: T,
+    red: T,
+    green: T,
+    blue: T,
+}
 
-    #[inline]
-    pub fn get_red(&self) -> T { self.red }
-    #[inline]
-    pub fn get_green(&self) -> T { self.green }
-    #[inline]
-    pub fn get_blue(&self) -> T { self.blue }
-    #[inline]
-    pub fn get_alpha(&self) -> T { self.alpha }
+pub trait AbstractRGBAPixel<T: PixelCompute> {
+    fn red(&self) -> T;
+    fn green(&self) -> T;
+    fn blue(&self) -> T;
+    fn alpha(&self) -> T;
 
-    pub fn zero() -> Self {
-        Self { red: T::ZERO, green: T::ZERO, blue: T::ZERO, alpha: T::ZERO }
-    }
+    fn new(r: T, g: T, b: T, a: T) -> Self;
+    fn zero() -> Self;
 
-    pub fn unmult_rgba(&self) -> RgbaPixel<T> {
-        let r = self.get_red();
-        let g = self.get_green();
-        let b = self.get_blue();
-        let a = self.get_alpha();
+    fn unmult_rgba(&self) -> Self where Self: Sized {
+        let a = self.alpha();
         if a == T::ZERO {
-            return RgbaPixel::zero();
+            return Self::zero();
         }
+        let r = self.red();
+        let g = self.green();
+        let b = self.blue();
+
         let a_f = a.to_f32();
         let mut r_f = r.to_f32();
         let mut g_f = g.to_f32();
@@ -80,10 +82,74 @@ impl<T> RgbaPixel<T> where T: PixelCompute {
             g_f *= scale;
             b_f *= scale;
         } else {
-            return RgbaPixel::zero();
+            return Self::zero();
         }
 
-        RgbaPixel::new(T::from_f32(r_f), T::from_f32(g_f), T::from_f32(b_f), T::from_f32(max_val))
+        Self::new(T::from_f32(r_f), T::from_f32(g_f), T::from_f32(b_f), T::from_f32(max_val))
+    }
+
+    
+    fn buffer_as_slice_from(data: &[u8]) -> &[Self] where Self: Sized {
+        // 長さが4の倍数でなければならない
+        log::trace!("data.len() = {}", data.len());
+        log::trace!("std::mem::size_of::<Self>() = {}", std::mem::size_of::<Self>());
+        assert!(data.len() % std::mem::size_of::<Self>() == 0);
+        unsafe {
+            std::slice::from_raw_parts(
+                data.as_ptr() as *const Self,
+                data.len() / std::mem::size_of::<Self>(),
+            )
+        }
+    }
+}
+
+// pub trait BufferExt {
+//     fn as_buffer(&self) -> &[u8] where Self: Sized {
+//         unsafe {
+//             std::slice::from_raw_parts(
+//                 self as *const Self as *const u8,
+//                 std::mem::size_of::<Self>(),
+//             )
+//         }
+//     }
+// }
+
+
+impl<T> AbstractRGBAPixel<T> for RgbaPixel<T> where T: PixelCompute {
+    #[inline]
+    fn red(&self) -> T { self.red }
+    #[inline]
+    fn green(&self) -> T { self.green }
+    #[inline]
+    fn blue(&self) -> T { self.blue }
+    #[inline]
+    fn alpha(&self) -> T { self.alpha }
+
+    fn new(r: T, g: T, b: T, a: T) -> Self {
+        Self { red: r, green: g, blue: b, alpha: a }
+    }
+
+    fn zero() -> Self {
+        Self { red: T::ZERO, green: T::ZERO, blue: T::ZERO, alpha: T::ZERO }
+    }
+}
+
+impl<T> AbstractRGBAPixel<T> for ArgbPixel<T> where T: PixelCompute {
+    #[inline]
+    fn red(&self) -> T { self.red }
+    #[inline]
+    fn green(&self) -> T { self.green }
+    #[inline]
+    fn blue(&self) -> T { self.blue }
+    #[inline]
+    fn alpha(&self) -> T { self.alpha }
+
+    fn new(r: T, g: T, b: T, a: T) -> Self {
+        Self { red: r, green: g, blue: b, alpha: a }
+    }
+
+    fn zero() -> Self {
+        Self { red: T::ZERO, green: T::ZERO, blue: T::ZERO, alpha: T::ZERO }
     }
 }
 
@@ -157,16 +223,25 @@ fn max3<T: PartialOrd>(a: T, b: T, c: T) -> T {
     if a >= b && a >= c { a } else if b >= c { b } else { c }
 }
 
+pub fn buffers_from_pixels<T: PixelCompute, U: AbstractRGBAPixel<T>>(pixels: &[U]) -> &[u8] {
+    unsafe {
+        std::slice::from_raw_parts(
+            pixels.as_ptr() as *const u8,
+            std::mem::size_of_val(pixels),
+        )
+    }
+}
+
 mod tests {
     use super::*;
 
     #[test]
     fn test_rgba_pixel() {
         let p = RgbaPixel::<u8>::new(1, 2, 3, 4);
-        assert_eq!(p.get_red(), 1);
-        assert_eq!(p.get_green(), 2);
-        assert_eq!(p.get_blue(), 3);
-        assert_eq!(p.get_alpha(), 4);
+        assert_eq!(p.red(), 1);
+        assert_eq!(p.green(), 2);
+        assert_eq!(p.blue(), 3);
+        assert_eq!(p.alpha(), 4);
     }
 
     // #[test]
@@ -215,10 +290,10 @@ mod tests {
     #[test]
     fn test_rgba_pixel_zero() {
         let p = RgbaPixel::<u8>::zero();
-        assert_eq!(p.get_red(), 0);
-        assert_eq!(p.get_green(), 0);
-        assert_eq!(p.get_blue(), 0);
-        assert_eq!(p.get_alpha(), 0);
+        assert_eq!(p.red(), 0);
+        assert_eq!(p.green(), 0);
+        assert_eq!(p.blue(), 0);
+        assert_eq!(p.alpha(), 0);
     }
 
     // #[test]
@@ -352,5 +427,25 @@ mod tests {
 
         let p = RgbaPixel::<u8>::new(255, 127, 127, 255).unmult_rgba();
         assert_eq!(p, RgbaPixel::<u8>::new(255, 127, 127, 255));
+    }
+
+    #[test]
+    fn test_pixels_buffer_as_slice_from_rgba() {
+        let slice = [0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255];
+        let pixels = RgbaPixel::<u8>::buffer_as_slice_from(&slice);
+        assert_eq!(pixels.len(), 5);
+        assert_eq!(pixels[0], RgbaPixel::<u8>::new(0, 0, 0, 255));
+        let buffer = buffers_from_pixels(pixels);
+        assert_eq!(slice, buffer);
+    }
+
+    #[test]
+    fn test_pixels_buffer_as_slice_from_argb() {
+        let slice = [255, 0, 0, 0, 255, 127, 127, 127, 255, 255, 255, 255, 255, 0, 0, 0];
+        let pixels = ArgbPixel::<u8>::buffer_as_slice_from(&slice);
+        assert_eq!(pixels.len(), 4);
+        assert_eq!(pixels[0], ArgbPixel::<u8>::new(0, 0, 0, 255));
+        let buffer = buffers_from_pixels(pixels);
+        assert_eq!(slice, buffer);
     }
 }
